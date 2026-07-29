@@ -1,0 +1,145 @@
+name: ci
+
+# Analyse, format-check, test, and build both shipping targets on every push.
+#
+# Lives at `.github/workflows/` because that is what both GitHub and Forgejo Actions read.
+# Forgejo also accepts `.forgejo/workflows/`; this location works on either, which matters
+# if this ever moves host.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Pinned rather than `stable`. A minor Flutter release changes lint behaviour and
+  # generated-code formatting, which would turn "the SDK moved" into "your PR fails" for
+  # whoever happened to open one that morning.
+  FLUTTER_VERSION: '3.44.8'
+
+jobs:
+  analyze:
+    name: analyse, format, generated files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: analyze
+        run: flutter analyze
+
+      - name: format
+        # `--set-exit-if-changed` rather than committing a reformat: a formatter that
+        # rewrites the branch turns every review into a diff of whitespace.
+        run: dart format --set-exit-if-changed .
+
+      # The three generators below all write files that are committed. Each check
+      # regenerates and asserts the tree did not move — which is the only exact way to
+      # catch "changed the source, forgot to re-run it". A test cannot: the stale output
+      # is perfectly valid, it just describes the previous version.
+      - name: localisations are up to date
+        run: |
+          flutter gen-l10n
+          git diff --exit-code -- lib/l10n/ \
+            || (echo "::error::lib/l10n is stale — run 'flutter gen-l10n' and commit" && exit 1)
+
+      - name: launcher icons are up to date
+        run: |
+          dart run flutter_launcher_icons
+          git diff --exit-code -- android/app/src/main/res windows/runner/resources macos/Runner \
+            || (echo "::error::icons are stale — run 'dart run flutter_launcher_icons' and commit" && exit 1)
+
+      - name: drift and freezed output is up to date
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          git diff --exit-code -- 'lib/**/*.g.dart' 'lib/**/*.freezed.dart' \
+            || (echo "::error::generated code is stale — run build_runner and commit" && exit 1)
+
+  test:
+    name: test
+    # Windows, not Linux, and deliberately: the audit database is SQLite reached through
+    # a native asset, and the whole suite has only ever been verified against the Windows
+    # build of it. Running the tests somewhere the app is never shipped would be testing
+    # a configuration nobody uses.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter test --reporter expanded
+
+  build-windows:
+    name: build Windows
+    needs: [analyze, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Builds the app, stages the Visual C++ runtime beside it, and compiles the
+      # installer. Inno Setup is preinstalled on the GitHub Windows images; build.ps1
+      # finds it via the uninstall key rather than a hard-coded path.
+      - name: build installer
+        shell: pwsh
+        run: ./installer/windows/build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/out/*.exe
+          if-no-files-found: error
+
+  build-android:
+    name: build Android
+    needs: [analyze, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # AGP 9, which Flutter 3.44's template generates, needs 17 at minimum; 21 is
+          # what it is tested against.
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # No `-PrequireReleaseSigning` here: CI on a branch has no keystore, and this build
+      # exists to prove the app compiles, not to produce something installable. The
+      # release workflow is where signing is mandatory.
+      - name: build apk
+        run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-unsigned
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

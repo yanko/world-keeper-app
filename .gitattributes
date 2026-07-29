@@ -1,0 +1,27 @@
+# Line endings, normalised in the repository.
+#
+# Not cosmetic: the `analyze` job in CI runs `dart format --set-exit-if-changed` on Linux
+# while development happens on Windows. Without this, Git's autocrlf hands each side
+# different bytes for the same file and the two disagree about whether the tree is
+# formatted — a failure that reproduces on nobody's machine.
+* text=auto eol=lf
+
+# PowerShell keeps CRLF. `installer/windows/build.ps1` is parsed by Windows PowerShell 5.1,
+# which is fussy enough about that file already — see the UTF-8 BOM requirement documented
+# inside it.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Windows-native build files.
+*.sln  text eol=crlf
+*.vcxproj text eol=crlf
+
+# Binary — never touch these.
+*.png binary
+*.ico binary
+*.icns binary
+*.jks binary
+*.keystore binary
+*.ttf binary
+*.otf binary
+*.woff2 binary

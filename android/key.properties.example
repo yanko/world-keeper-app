@@ -1,0 +1,20 @@
+# Copy to `android/key.properties` and fill in. That file is gitignored; this one is not.
+#
+# Make the keystore once and keep it somewhere you will still have it in five years —
+# losing it means you can never ship an update to anyone who installed the app, only a
+# differently-named app they have to install alongside. There is no recovery path.
+#
+#   keytool -genkey -v -keystore world-keeper-release.jks \
+#           -keyalg RSA -keysize 2048 -validity 10000 -alias world-keeper
+#
+# `storeFile` is resolved relative to `android/app/`, so an absolute path outside the
+# repository is the right answer — the keystore should not live next to the code.
+#
+# In CI, don't create this file from secrets in a script that echoes. See
+# `.github/workflows/release.yml`, which base64-decodes the store into a temp path and
+# writes the properties with a heredoc.
+
+storePassword=
+keyPassword=
+keyAlias=world-keeper
+storeFile=C:/keys/world-keeper-release.jks

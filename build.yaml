@@ -1,0 +1,30 @@
+# Code generation settings.
+
+targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          # Without this, a generated `toJson()` leaves nested objects as *objects* in
+          # the returned map (e.g. `{'profiles': [Profile instance, ...]}`) and relies on
+          # `jsonEncode` to call their `toJson()` later. That happens to produce correct
+          # output when the map goes straight to `jsonEncode`, and silently wrong output
+          # anywhere else — comparing two maps, merging into another map, writing to a
+          # store that walks the structure itself.
+          #
+          # Since `config.json` compatibility with the Rust app is asserted by comparing
+          # decoded maps, `toJson()` must return a genuinely plain JSON structure.
+          explicit_to_json: true
+
+          # Field names are already the wire names — the models mirror serde's
+          # camelCase output exactly, so no renaming should ever be applied.
+          field_rename: none
+
+          # Unknown keys must not throw: a newer build of either app adding a field
+          # cannot be allowed to stop the other one from loading the shared config.
+          disallow_unrecognized_keys: false
+
+          # Nulls are written by default; the two fields Rust marks
+          # `skip_serializing_if = "Option::is_none"` opt out individually with
+          # `@JsonKey(includeIfNull: false)`.
+          include_if_null: true

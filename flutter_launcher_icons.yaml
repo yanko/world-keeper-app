@@ -1,0 +1,50 @@
+# Launcher icons, generated from one source PNG for every platform.
+#
+# Run after changing `assets/icon/icon.png`:
+#
+#     dart run flutter_launcher_icons
+#
+# The outputs are committed, not generated at build time — a build machine that skipped
+# this step would otherwise ship the blue Flutter "F", which looks like a mistake and is
+# the sort of thing nobody notices until it is in a screenshot. `launcher_icon_test.dart`
+# asserts every slot has a file in it and that the config still agrees with the theme; CI
+# re-runs the generator and fails on any diff, which is what catches "changed the art,
+# forgot to regenerate".
+#
+# Kept out of `pubspec.yaml` deliberately: `flutter pub add` rewrites that file and drops
+# comments, and this block is mostly comment.
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+
+  android: "ic_launcher"
+  min_sdk_android: 24
+
+  # Adaptive icons are a *mask* the launcher chooses — circle, squircle, teardrop — so
+  # only the centre of the foreground layer is guaranteed to survive. The source art is a
+  # full-bleed circular badge with "WORLD KEEPER" running around its top edge, which a
+  # circle mask would shave the lettering off. An 18% inset per side leaves the badge at
+  # 64% of the 108dp layer, inside the 72dp circle the mask always keeps.
+  adaptive_icon_foreground: "assets/icon/icon.png"
+  adaptive_icon_foreground_inset: 18
+
+  # The app's own dark background (`oklch(0.16 0.008 250)`), so the icon reads as this
+  # app rather than as a badge floating on an unrelated colour. Asserted against the
+  # theme by `launcher_icon_test.dart` — if the palette moves, the icon moves with it.
+  adaptive_icon_background: "#0B0E11"
+
+  # No `adaptive_icon_monochrome`. Android 13's themed icons want a flat single-colour
+  # silhouette; flattening a badge whose whole subject is *coloured* arrows around a
+  # gemstone gives an unreadable blob. Better to opt out than to ship that.
+
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
+
+  macos:
+    generate: true
+    image_path: "assets/icon/icon.png"
+
+  # iOS is not a target — no `ios:` block — but the runner exists in the tree, so this is
+  # a one-line change if it ever becomes one. It would need `remove_alpha_ios: true`;
+  # the App Store rejects icons with an alpha channel and this art is transparent.

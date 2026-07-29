@@ -1,0 +1,23 @@
+# Localisation, via the SDK's own `gen_l10n`. Nothing to run by hand: `flutter run`,
+# `flutter build` and `flutter test` all regenerate from the ARB files first, so a
+# forgotten step cannot ship a stale string table.
+#
+# The generated `app_localizations*.dart` land beside the ARB files in `lib/l10n/` and are
+# committed, same as the drift and freezed output already in this repo — a fresh clone
+# analyses clean without anyone having to know which generator to run first. They carry
+# gen_l10n's own "do not edit" header.
+
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+
+# `AppLocalizations.of(context)` returns non-null. The nullable form exists for apps that
+# might not have the delegate installed; this one installs it in `WorldKeeperApp` and has
+# nowhere it could legitimately be absent, so every call site would end in `!`.
+nullable-getter: false
+
+# A key present in app_en.arb and missing from app_fr.arb is a bug, not a warning to
+# scroll past — the French user gets an English string with no indication anything is
+# wrong. `untranslated-messages-file` writes them out, and `l10n_test.dart` fails on a
+# non-empty list.
+untranslated-messages-file: l10n_untranslated.json

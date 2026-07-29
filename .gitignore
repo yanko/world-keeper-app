@@ -1,0 +1,65 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/coverage/
+
+# Build output, at any depth. The leading-slash form Flutter's template ships only matches
+# the project root, which let Gradle's `android/build/reports/` slip into the first commit
+# of this repository — a build report is not source.
+build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Release signing. `key.properties` holds the keystore password in plain text and
+# `*.jks`/`*.keystore` are the signing identity itself — either one in the repository
+# means anyone who can read the repository can ship an update as us.
+# `android/key.properties.example` is the committed template.
+/android/key.properties
+**/*.jks
+**/*.keystore
+
+# Installer output.
+/installer/out/
+
+# gen_l10n's report of messages missing from a translation. Regenerated on every build;
+# `test/l10n/arb_test.dart` checks the same thing from the ARB files directly, so this is
+# a convenience for reading, not a source of truth.
+/l10n_untranslated.json

@@ -1,0 +1,82 @@
+# Static analysis configuration for World Keeper.
+#
+# Deliberately stricter than the Flutter default. This app issues destructive remote
+# commands against a live game server, so "the compiler should have caught that" is a
+# standard worth paying for.
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    # No implicit downcasts from dynamic, no implicit dynamic type arguments, and
+    # unsound `is` checks become errors. Most of this codebase parses untrusted remote
+    # shell output into typed values — implicit casts are exactly the wrong default here.
+    strict-casts: true
+    strict-raw-types: true
+    strict-inference: true
+
+  errors:
+    # Generated code is checked in but never hand-edited.
+    todo: ignore
+    # Elevated from warning: silently dropping a Future in an SSH/file path means an
+    # operation that appears to succeed while nothing actually ran.
+    unawaited_futures: error
+    discarded_futures: error
+    # A non-exhaustive switch over a sealed type (ServiceKind, WkException, operation
+    # states) must never compile — that is the entire reason those types are sealed.
+    non_exhaustive_switch_statement: error
+    non_exhaustive_switch_expression: error
+
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "build/**"
+
+linter:
+  rules:
+    # --- correctness ------------------------------------------------------------
+    always_declare_return_types: true
+    avoid_dynamic_calls: true
+    avoid_slow_async_io: true
+    cancel_subscriptions: true
+    close_sinks: true
+    comment_references: true
+    literal_only_boolean_expressions: true
+    no_adjacent_strings_in_list: true
+    test_types_in_equals: true
+    throw_in_finally: true
+    unnecessary_statements: true
+    # Remote output is parsed constantly; `as` without a check is how you get a crash
+    # instead of a useful error message.
+    avoid_type_to_string: true
+
+    # --- async ------------------------------------------------------------------
+    await_only_futures: true
+    unawaited_futures: true
+
+    # --- immutability / API shape ------------------------------------------------
+    prefer_final_locals: true
+    prefer_final_in_for_each: true
+    avoid_setters_without_getters: true
+    use_setters_to_change_properties: true
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_const_literals_to_create_immutables: true
+
+    # --- style ------------------------------------------------------------------
+    prefer_single_quotes: true
+    directives_ordering: true
+    combinators_ordering: true
+    sort_pub_dependencies: false
+    unnecessary_lambdas: true
+    unnecessary_parenthesis: true
+    use_string_buffers: true
+    require_trailing_commas: true
+
+    # --- layering ----------------------------------------------------------------
+    # `core/` and every `domain/` layer must stay Flutter-free so the SSH transport and
+    # the push/pull/restore envelopes can be unit-tested headlessly. This rule only
+    # enforces relative-vs-package consistency; the actual "no Flutter in domain" rule
+    # is enforced by the import test in test/architecture_test.dart.
+    prefer_relative_imports: false
+    always_use_package_imports: true

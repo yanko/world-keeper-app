@@ -1,0 +1,16 @@
+# Test configuration.
+
+tags:
+  # Integration tests that connect to a real SSH server.
+  #
+  # Declared here only so package:test doesn't warn about an unknown tag. The tag is a
+  # *selector*, not the safety mechanism — a `skip:` here would also skip the tests when
+  # they are asked for explicitly with `--tags live`.
+  #
+  # The actual guard is in the test file itself: it registers nothing but a skipped
+  # placeholder unless WK_LIVE_PROFILE names a stored connection profile, so neither a
+  # plain `flutter test` nor CI can reach a real server. Writes need a second flag,
+  # WK_LIVE_WRITE=1.
+  #
+  #   WK_LIVE_PROFILE="my-profile" flutter test --tags live test/integration/live_server_test.dart
+  live:
