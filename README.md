@@ -10,6 +10,29 @@ deliberately **config-compatible**: both read the same `config.json` and the sam
 database location, so they can be installed side by side and switched between freely. See
 [docs/02 — Architecture](docs/02-ARCHITECTURE.md) for why that constraint was kept.
 
+Built by Yanko with [Claude Code](https://claude.com/claude-code) (Claude Opus 5).
+
+## Install
+
+Download the file for your platform from
+[Releases](../../releases/latest):
+
+| Platform | File |
+|---|---|
+| Windows 10 (1809) or later, x64 | `WorldKeeper-X.Y.Z-windows-x64-setup.exe` |
+| macOS, Apple silicon and Intel | `WorldKeeper-X.Y.Z-macos-universal.dmg` |
+| Linux x64 | `WorldKeeper-X.Y.Z-linux-x64.tar.gz` |
+| Android | `WorldKeeper-X.Y.Z-android.apk` |
+
+The builds are **not code-signed** with a paid certificate, so the OS warns on first
+launch:
+
+- **Windows** — SmartScreen shows "Windows protected your PC". Click **More info** →
+  **Run anyway**. The installer is per-user and does not ask for administrator.
+- **macOS** — Gatekeeper refuses to open the app the first time. Go to **System Settings →
+  Privacy & Security** and click **Open Anyway**.
+- **Linux** — extract the archive and run `./world_keeper`. Needs GTK 3 and libsecret.
+
 ## Status: feature-complete and shippable
 
 Connect, discover, watch live stats, push / pull / restore worlds, open a real shell, and
@@ -29,7 +52,35 @@ flutter build apk --release           OK
 installer\windows\build.ps1           WorldKeeper-1.0.0-windows-x64-setup.exe, 12.8 MB
 ```
 
-### Building a release
+### Releasing
+
+Releases are built by GitHub Actions. Pushing a `v*` tag builds Windows, macOS, Linux and
+Android and attaches them to a **draft** release; see [ci/README.md](ci/README.md),
+including the one-time Android signing setup.
+
+To bump the version, change it in **both** places and keep them equal:
+
+| File | Line |
+|---|---|
+| `pubspec.yaml` | `version: X.Y.Z+N` (raise the `+N` build number on every release; Android needs it to increase) |
+| `lib/app/app_info.dart` | `const String appVersion = 'X.Y.Z';` |
+
+Everything else (the Windows installer, file names, macOS/Android version fields) is
+derived from `pubspec.yaml` at build time. `test/app/app_info_test.dart` fails if the two
+disagree, and the release workflow refuses a tag that is not `v` + the pubspec version:
+
+```bash
+flutter test
+git commit -am "Release vX.Y.Z"
+git tag vX.Y.Z
+git push origin main vX.Y.Z
+```
+
+### Building locally
+
+The Flutter SDK version is pinned in `.fvmrc`. Use that version (with fvm or puro);
+newer SDKs rewrite `pubspec.lock`. On Windows, the Visual Studio C++ workload also needs
+the **C++ ATL** component, because `flutter_secure_storage_windows` includes `atlstr.h`.
 
 ```bash
 # Windows: builds the app, stages the VC++ runtime beside it, compiles the installer
@@ -140,8 +191,9 @@ and a permanent live-log pane from 1440.
 Flutter-free so the transport and the push/pull/restore envelopes can be tested
 headlessly. That rule is enforced by `test/architecture_test.dart`, not by convention.
 
-Flutter 3.44.8 · Dart 3.12.2. macOS / iOS / Linux are unverified — no runner on the
-machine this was set up on.
+Flutter 3.44.8 (pinned in `.fvmrc`) · Dart 3.12.2. Windows and Android are verified on
+real hardware. macOS and Linux are built by the release workflow but have not yet been
+run by hand. iOS is not built.
 
 ## Android configuration — read before touching it
 
