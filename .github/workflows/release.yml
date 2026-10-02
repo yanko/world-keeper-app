@@ -1,13 +1,21 @@
 name: release
 
-# Builds signed, shippable artifacts for a tag and attaches them to a draft release.
+# Builds installers for every desktop platform plus a signed Android APK, and attaches
+# them to a draft release.
 #
-# Push a tag to cut a release:
+# Cut a release (the tag must match `version:` in pubspec.yaml, or the run fails):
 #
-#     git tag v1.0.0 && git push origin v1.0.0
+#     git tag v1.2.3 && git push origin v1.2.3
+#
+# Test the whole pipeline without releasing anything: Actions -> release -> Run workflow.
+# A manual run builds everything and uploads it as workflow artifacts; it never creates a
+# release.
 #
 # The release is created as a **draft**: nothing is published until a person has actually
-# downloaded the installer and run it once. An automatic release is an automatic promise.
+# downloaded the installers and run them once. An automatic release is an automatic
+# promise.
+
+run-name: ${{ github.event_name == 'push' && format('Release {0}', github.ref_name) || format('Test build ({0})', github.ref_name) }}
 
 on:
   push:
@@ -15,74 +23,219 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
-env:
-  FLUTTER_VERSION: '3.44.8'
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  version:
+    name: version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      # One source of truth. A tag that disagrees with pubspec.yaml would ship an installer
+      # whose file name, About dialog and audit rows all name a different version than the
+      # release page — so it fails here, before anything is built.
+      - name: read pubspec version
+        id: read
+        run: |
+          version=$(sed -nE 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' pubspec.yaml)
+          if [ -z "$version" ]; then
+            echo "::error::could not read version: from pubspec.yaml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "pubspec version: $version"
+
+      - name: tag matches pubspec
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.read.outputs.version }}
+        run: |
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag $TAG does not match pubspec.yaml version $VERSION — bump pubspec.yaml and lib/app/app_info.dart, or tag v$VERSION"
+            exit 1
+          fi
+
+  windows:
+    name: Windows
+    needs: version
+    # Pinned image rather than windows-latest: the build needs the ATL headers
+    # (flutter_secure_storage_windows) and Inno Setup 6, both of which this image ships.
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
+          flutter-version-file: .fvmrc
           cache: true
 
       - run: flutter pub get
 
+      # Builds the app, stages the Visual C++ runtime beside it, reads the version from
+      # pubspec.yaml and compiles the Inno Setup installer into installer/out/.
       - name: build installer
         shell: pwsh
         run: ./installer/windows/build.ps1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: installer/out/*.exe
           if-no-files-found: error
+          retention-days: 14
 
-  android:
-    runs-on: ubuntu-latest
+  macos:
+    name: macOS
+    needs: version
+    runs-on: macos-26
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
+          flutter-version-file: .fvmrc
           cache: true
 
       - run: flutter pub get
 
-      # The keystore is a repository secret holding the base64 of the .jks. Written to a
-      # path outside the checkout so no later step can accidentally archive it, and via
-      # a heredoc rather than `echo` so the password never appears in a command line —
-      # `ps` is readable by other processes on the runner.
-      #
-      # Required secrets:
-      #   ANDROID_KEYSTORE_BASE64   base64 -w0 world-keeper-release.jks
-      #   ANDROID_KEYSTORE_PASSWORD
-      #   ANDROID_KEY_PASSWORD
-      #   ANDROID_KEY_ALIAS
+      # Universal (arm64 + x86_64) by default, and ad-hoc signed — the project's
+      # CODE_SIGN_IDENTITY is "-". Not notarised: Gatekeeper blocks the first launch until
+      # the user allows it in System Settings -> Privacy & Security.
+      - name: build app
+        run: flutter build macos --release
+
+      # The bundle is built as world_keeper.app (PRODUCT_NAME); it goes into the disk image
+      # under the product name. Renaming the bundle directory does not touch the signature,
+      # which seals the contents, not the folder name.
+      - name: package dmg
+        run: |
+          staging="$RUNNER_TEMP/dmg"
+          mkdir -p "$staging" installer/out
+          cp -R build/macos/Build/Products/Release/world_keeper.app "$staging/World Keeper.app"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create \
+            -volname "World Keeper" \
+            -srcfolder "$staging" \
+            -fs HFS+ -format UDZO -ov \
+            "installer/out/WorldKeeper-$VERSION-macos-universal.dmg"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: installer/out/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Flutter's own Linux toolchain, plus libsecret and jsoncpp for
+      # flutter_secure_storage_linux.
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libsecret-1-dev libjsoncpp-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+
+      - run: flutter pub get
+
+      - name: build app
+        run: flutter build linux --release
+
+      # The bundle directory is self-contained (executable, lib/, data/); it is archived
+      # under a versioned top-level folder so extracting it never spills into the cwd.
+      - name: package tarball
+        run: |
+          mkdir -p installer/out
+          tar -C build/linux/x64/release \
+            --transform "s,^bundle,world-keeper-$VERSION," \
+            -czf "installer/out/WorldKeeper-$VERSION-linux-x64.tar.gz" bundle
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: installer/out/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      # Signing is all-or-nothing. With the four secrets the APK is release-signed; without
+      # them the job skips the build with a warning instead of falling back to a debug key.
+      # A debug-signed APK installs and runs normally, but every CI runner generates its
+      # own random debug key, so no later build could ever be installed over it — users
+      # would have to uninstall, losing their profiles and audit log. See ci/README.md for
+      # how to create the keystore and the secrets.
+      - name: check for signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::Android skipped: ANDROID_KEYSTORE_BASE64 is not set. See ci/README.md to set up release signing."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.signing.outputs.enabled == 'true'
+
+      - uses: actions/setup-java@v6
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          distribution: temurin
+          # AGP 8.11 needs 17 at minimum; 21 is what the Android build was verified with.
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+
+      - run: flutter pub get
+        if: steps.signing.outputs.enabled == 'true'
+
+      # The keystore is written outside the checkout so no later step can archive it, and
+      # key.properties via a heredoc rather than `echo` so no password appears in a command
+      # line.
       - name: set up signing
+        if: steps.signing.outputs.enabled == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 is not set — see android/key.properties.example"
-            exit 1
-          fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           cat > android/key.properties <<EOF
           storePassword=$KEYSTORE_PASSWORD
@@ -91,50 +244,74 @@ jobs:
           storeFile=$RUNNER_TEMP/release.jks
           EOF
 
-      # `-PrequireReleaseSigning` makes the build *fail* rather than silently fall back to
-      # the debug key. A debug-signed APK installs and runs and looks entirely normal —
-      # and can never be updated, because Android refuses a properly-signed build over it.
-      # Publishing one would strand every user who installed it.
+      # `-PrequireReleaseSigning` makes Gradle fail rather than silently fall back to the
+      # debug key if key.properties is somehow unusable.
       - name: build apk
-        run: flutter build apk --release -PrequireReleaseSigning
-
-      - name: build app bundle
-        run: flutter build appbundle --release -PrequireReleaseSigning
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          flutter build apk --release -PrequireReleaseSigning
+          mkdir -p installer/out
+          cp build/app/outputs/flutter-apk/app-release.apk "installer/out/WorldKeeper-$VERSION-android.apk"
 
       - name: remove signing material
-        if: always()
+        if: always() && steps.signing.outputs.enabled == 'true'
         run: rm -f android/key.properties "$RUNNER_TEMP/release.jks"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
+        if: steps.signing.outputs.enabled == 'true'
         with:
           name: android
-          path: |
-            build/app/outputs/flutter-apk/app-release.apk
-            build/app/outputs/bundle/release/app-release.aab
+          path: installer/out/*.apk
           if-no-files-found: error
+          retention-days: 14
 
   release:
-    needs: [windows, android]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: draft release
+    needs: [version, windows, macos, linux, android]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
+          merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - run: ls -la artifacts
+
+      - uses: softprops/action-gh-release@v3
         with:
           draft: true
           name: World Keeper ${{ github.ref_name }}
-          files: artifacts/**/*
+          files: artifacts/*
+          fail_on_unmatched_files: true
           body: |
-            **Windows** — run the `.exe` installer. It is not code-signed, so Windows
-            shows "Windows protected your PC" on first run; click More info → Run anyway.
-            Installs per-user by default, so it does not ask for administrator.
+            ## Downloads
 
-            **Android** — the `.apk` installs directly; the `.aab` is for Play.
+            | Platform | File |
+            |---|---|
+            | Windows 10 (1809) or later, x64 | `WorldKeeper-${{ needs.version.outputs.version }}-windows-x64-setup.exe` |
+            | macOS, Apple silicon and Intel | `WorldKeeper-${{ needs.version.outputs.version }}-macos-universal.dmg` |
+            | Linux x64 | `WorldKeeper-${{ needs.version.outputs.version }}-linux-x64.tar.gz` |
+            | Android | `WorldKeeper-${{ needs.version.outputs.version }}-android.apk` (when attached) |
+
+            ## First launch
+
+            None of the builds are code-signed by a paid certificate, so the OS warns once:
+
+            - **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
+              The installer is per-user and does not ask for administrator.
+            - **macOS:** open the `.dmg`, drag World Keeper to Applications, and open it.
+              When macOS refuses, go to **System Settings → Privacy & Security** and click
+              **Open Anyway**.
+            - **Linux:** extract the archive and run `./world_keeper`. Needs GTK 3 and
+              libsecret, which every mainstream desktop already has.
+            - **Android:** allow installing from your browser or file manager when asked.
+
+            ## Before you use it
 
             World Keeper stops and restarts a live game server and overwrites world files.
-            It backs up before every destructive step and rolls back on failure, but it is
-            a homelab tool and comes with no guarantee against data loss. Keep your own
+            It backs up before every destructive step and rolls back on failure, but it is a
+            homelab tool and comes with no guarantee against data loss. Keep your own
             backups.
