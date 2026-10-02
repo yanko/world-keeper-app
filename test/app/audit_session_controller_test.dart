@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:world_keeper/app/app_info.dart';
 import 'package:world_keeper/app/providers.dart';
 import 'package:world_keeper/core/audit/audit_database.dart';
 import 'package:world_keeper/core/audit/audit_database_factory.dart';
@@ -110,7 +111,7 @@ void main() {
     await notifier.recordConnect(alpha);
     final rolled = await notifier.recordConnect(beta);
 
-    expect((await db.sessionById(rolled))?.appVersion, '1.0.0');
+    expect((await db.sessionById(rolled))?.appVersion, appVersion);
   });
 
   test('the provider exposes the current row to everything that writes', () async {
