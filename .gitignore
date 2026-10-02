@@ -63,3 +63,12 @@ app.*.map.json
 # `test/l10n/arb_test.dart` checks the same thing from the ARB files directly, so this is
 # a convenience for reading, not a source of truth.
 /l10n_untranslated.json
+
+# Other secrets that must never be committed: environment files, Apple signing
+# identities and provisioning profiles, and loose PEM keys.
+.env
+.env.*
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.pem
